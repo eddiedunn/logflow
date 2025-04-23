@@ -9,6 +9,7 @@ setup(
     entry_points={
         "console_scripts": [
             "logflow=logflow.cli:main",
+            "logflow-listener=logflow.listener:main",
         ],
     },
     python_requires=">=3.7",
