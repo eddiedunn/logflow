@@ -34,3 +34,21 @@ class DiskSink(BaseSink):
                 f.write(line.rstrip() + "\n")
         if self.on_write:
             self.on_write(path)
+
+class StdoutSink(BaseSink):
+    """Echoes each log batch to standard output."""
+    def write_batch(self, batch: List[str]):
+        if not batch:
+            return
+        print("[StdoutSink] Log batch:")
+        for line in batch:
+            print(line)
+
+class TestSink(BaseSink):
+    """Test-only sink that appends each batch to a shared list for assertion."""
+    def __init__(self, received_batches):
+        self.received_batches = received_batches
+    def write_batch(self, batch: List[str]):
+        if not batch:
+            return
+        self.received_batches.append(list(batch))

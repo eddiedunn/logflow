@@ -1,0 +1,2 @@
+[console_scripts]
+logflow = logflow.cli:main

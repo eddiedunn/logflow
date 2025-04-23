@@ -63,7 +63,9 @@ class TestFailureModes:
         os.environ["S3_REGION"] = "us-east-1"
         server_addr = ('127.0.0.1', 10102)
         stop_event = threading.Event()
+        ready_event = threading.Event()
         error_triggered = threading.Event()
+        error_holder = []
         def callback(msg):
             pass
         def server():
@@ -75,14 +77,18 @@ class TestFailureModes:
                         ip=server_addr[0], port=server_addr[1],
                         sinks=[S3Sink()],
                         received_callback=callback,
-                        batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event
+                        batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event,
+                        ready_event=ready_event
                     )
-                except Exception:
+                except Exception as e:
+                    print('[test] Exception in server:', e)
+                    error_holder.append(e)
                     error_triggered.set()
             asyncio.run(run())
         thread = threading.Thread(target=server, daemon=True)
         thread.start()
-        time.sleep(0.5)
+        ready_event.wait(timeout=5)
+        time.sleep(0.2)
         # Act: Send UDP packet
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         msg = b'{"msg": "s3-unavailable-test"}'
@@ -91,7 +97,8 @@ class TestFailureModes:
         error = error_triggered.wait(timeout=3)
         stop_event.set()
         thread.join(timeout=2)
-        assert error, "S3 unavailable error not triggered or not handled gracefully."
+        print('[test] S3 error_holder:', error_holder)
+        assert error, f"S3 unavailable error not triggered or not handled gracefully. error_holder={error_holder}"
 
     def test_partial_network_outage(self, tmp_path):
         """Drop UDP packets or interrupt network; verify system recovery or error logging."""
