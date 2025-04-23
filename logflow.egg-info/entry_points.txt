@@ -1,3 +1,3 @@
 [console_scripts]
 logflow = logflow.cli:main
-logflow-listener = logflow.listener:main
+logflow-listener = logflow.listener:main_entrypoint

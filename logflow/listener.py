@@ -193,6 +193,15 @@ async def main():
             print("[listener] S3Sink not available (boto3 missing or not implemented)")
     await run_logflow_server(sinks=sinks)
 
+def main_entrypoint():
+    try:
+        import aiohttp  # Ensure aiohttp is available for health check
+    except ImportError:
+        print("[listener] Please install aiohttp for health check endpoint: pip install aiohttp")
+        exit(1)
+    import asyncio
+    asyncio.run(main())
+
 def start_udp_server(batch_queue=None, ip=None, port=None, received_callback=None, stop_event=None):
     """Convenience wrapper to start the UDP server for testing/integration, supports stop_event for clean shutdown."""
     import asyncio
@@ -205,9 +214,4 @@ def start_udp_server(batch_queue=None, ip=None, port=None, received_callback=Non
     return batch_queue
 
 if __name__ == "__main__":
-    try:
-        import aiohttp  # Ensure aiohttp is available for health check
-    except ImportError:
-        print("[listener] Please install aiohttp for health check endpoint: pip install aiohttp")
-        exit(1)
-    asyncio.run(main())
+    main_entrypoint()
