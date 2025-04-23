@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: udp_log_forwarder
+Version: 0.1.0
+Summary: Forward logs as JSON over UDP, with CLI and Python logging handler.
+Author: Your Name
+Requires-Python: >=3.7
+Dynamic: author
+Dynamic: requires-python
+Dynamic: summary

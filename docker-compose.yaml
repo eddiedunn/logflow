@@ -1,0 +1,58 @@
+services:
+  minio_logflow:
+    image: minio/minio:latest
+    container_name: minio_logflow
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ':9001'
+    volumes:
+      - minio_logflow_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+
+  logflow_listener:
+    build: .
+    command: python -m logflow.listener
+    environment:
+      S3_ENDPOINT: http://minio_logflow:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: logflow-ingest
+      S3_REGION: us-east-1
+      UDP_LOG_LISTEN_IP: 0.0.0.0
+      UDP_LOG_LISTEN_PORT: 9999
+      UDP_BATCH_SIZE_BYTES: 1048576
+      UDP_BATCH_INTERVAL: 60
+    depends_on:
+      - minio_logflow
+    ports:
+      - "9999:9999"
+      - "8080:8080" # health check
+    restart: unless-stopped
+
+  test_runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      minio_logflow:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /code
+      MINIO_HOST: minio_logflow
+      MINIO_PORT: 9000
+    volumes:
+      - .:/code
+    entrypoint: ["/usr/local/bin/wait-for-minio.sh"]
+    command: ["pytest", "-v"]
+
+volumes:
+  minio_logflow_data:

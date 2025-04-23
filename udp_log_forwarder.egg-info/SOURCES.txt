@@ -1,0 +1,10 @@
+README.md
+setup.py
+udp_log_forwarder/__init__.py
+udp_log_forwarder/cli.py
+udp_log_forwarder/handler.py
+udp_log_forwarder.egg-info/PKG-INFO
+udp_log_forwarder.egg-info/SOURCES.txt
+udp_log_forwarder.egg-info/dependency_links.txt
+udp_log_forwarder.egg-info/entry_points.txt
+udp_log_forwarder.egg-info/top_level.txt

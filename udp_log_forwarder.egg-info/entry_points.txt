@@ -1,0 +1,2 @@
+[console_scripts]
+udp_log_forwarder = udp_log_forwarder.cli:main
