@@ -1,0 +1,1890 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.12, pytest-8.3.5, pluggy-1.5.0 -- /Users/tmwsiy/.pyenv/versions/3.11.12/envs/3.11.12logflow/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/tmwsiy/code/logflow
+configfile: pytest.ini
+plugins: timeout-2.3.1
+collecting ... collected 32 items
+
+tests/integration/test_cli_api.py::TestCLIAPI::test_cli_commands PASSED  [  3%]
+tests/integration/test_cli_api.py::TestCLIAPI::test_api_endpoints PASSED [  6%]
+tests/integration/test_concurrency_batching.py::TestConcurrencyBatching::test_multiple_concurrent_clients PASSED [  9%]
+tests/integration/test_concurrency_batching.py::TestConcurrencyBatching::test_large_batch_sizes PASSED [ 12%]
+tests/integration/test_disk_sink.py::test_udp_to_disk FAILED             [ 15%]
+tests/integration/test_error_edge_cases.py::TestErrorEdgeCases::test_malformed_log_message PASSED [ 18%]
+tests/integration/test_error_edge_cases.py::TestErrorEdgeCases::test_rapid_start_stop PASSED [ 21%]
+tests/integration/test_extensible_sink.py::test_udp_echo_minimal PASSED  [ 25%]
+tests/integration/test_extensible_sink.py::test_asyncio_udp_echo PASSED  [ 28%]
+tests/integration/test_extensible_sink.py::TestExtensibleSink::test_new_sink_plugin PASSED [ 31%]
+tests/integration/test_extensible_sink.py::TestExtensibleSink::test_multiple_sinks PASSED [ 34%]
+tests/integration/test_failure_modes.py::TestFailureModes::test_disk_full PASSED [ 37%]
+tests/integration/test_failure_modes.py::TestFailureModes::test_s3_unavailable FAILED [ 40%]
+tests/integration/test_failure_modes.py::TestFailureModes::test_partial_network_outage PASSED [ 43%]
+tests/integration/test_health_check.py::TestHealthCheck::test_health_endpoint_healthy FAILED [ 46%]
+tests/integration/test_health_check.py::TestHealthCheck::test_health_endpoint_unhealthy FAILED [ 50%]
+tests/integration/test_ipc_tail.py::test_ipc_tail FAILED                 [ 53%]
+tests/integration/test_retention_lifecycle.py::TestRetentionLifecycle::test_s3_lifecycle_policy FAILED [ 56%]
+tests/integration/test_retention_lifecycle.py::TestRetentionLifecycle::test_disk_cleanup FAILED [ 59%]
+tests/integration/test_retrieval_search_tail.py::TestRetrievalSearchTail::test_s3_log_retrieval FAILED [ 62%]
+tests/integration/test_retrieval_search_tail.py::TestRetrievalSearchTail::test_disk_log_retrieval PASSED [ 65%]
+tests/integration/test_retrieval_search_tail.py::TestRetrievalSearchTail::test_search_and_tail FAILED [ 68%]
+tests/integration/test_s3_sink.py::test_udp_to_s3 FAILED                 [ 71%]
+tests/integration/test_security_permissions.py::TestSecurityPermissions::test_s3_permissions FAILED [ 75%]
+tests/integration/test_security_permissions.py::TestSecurityPermissions::test_file_permissions PASSED [ 78%]
+tests/integration/test_stdout_sink.py::test_stdout_sink PASSED           [ 81%]
+tests/integration/test_udp_flow.py::test_udp_flow PASSED                 [ 84%]
+tests/unit/test_batching.py::test_batcher_add_and_flush PASSED           [ 87%]
+tests/unit/test_s3_sink.py::test_upload_batch_calls_s3 FAILED            [ 90%]
+tests/unit/test_s3_sink.py::test_upload_batch_handles_error FAILED       [ 93%]
+tests/unit/test_sink.py::test_disk_sink_creates_file_and_writes_batch PASSED [ 96%]
+tests/unit/test_sink.py::test_disk_sink_empty_batch_does_nothing PASSED  [100%]
+
+=================================== FAILURES ===================================
+_______________________________ test_udp_to_disk _______________________________
+
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_udp_to_disk0')
+
+    @pytest.mark.integration
+    def test_udp_to_disk(tmp_path):
+        # Arrange
+        server_addr = ('127.0.0.1', 9998)
+        output_dir = tmp_path / "logs"
+        file_written_event = threading.Event()
+        file_path_holder = {}
+        def on_write(path):
+            file_path_holder['path'] = path
+            file_written_event.set()
+        received = []
+        def callback(msg):
+            received.append(msg)
+    
+        stop_event = threading.Event()
+        def server():
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0],
+                    port=server_addr[1],
+                    sinks=[DiskSink(str(output_dir), on_write=on_write)],
+                    received_callback=callback,
+                    batch_size_bytes=1,  # force flush after first message
+                    batch_interval=0.1,   # flush almost immediately
+                    stop_event=stop_event
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+    
+        # Act: Send UDP packet
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = b'{"msg": "integration-disk"}'
+        sock.sendto(msg, server_addr)
+    
+        # Wait for file write event (up to 3s)
+        file_written = file_written_event.wait(timeout=3)
+>       assert file_written, "DiskSink did not write a file within timeout."
+E       AssertionError: DiskSink did not write a file within timeout.
+E       assert False
+
+tests/integration/test_disk_sink.py:48: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[listener] Preparing to listen for UDP logs on 127.0.0.1:9998
+[listener] UDP socket info: sockname=('127.0.0.1', 9998), family=2, type=2, proto=17
+_____________________ TestFailureModes.test_s3_unavailable _____________________
+
+self = <integration.test_failure_modes.TestFailureModes object at 0x10d86f050>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10debd250>
+
+    def test_s3_unavailable(self, monkeypatch):
+        """Simulate S3/MinIO being unreachable; verify retry logic and error reporting."""
+        # Arrange: Set bogus S3 endpoint
+        os.environ["S3_ENDPOINT"] = "http://127.0.0.1:9990"  # Unused port
+        os.environ["S3_ACCESS_KEY"] = "minioadmin"
+        os.environ["S3_SECRET_KEY"] = "minioadmin"
+        os.environ["S3_BUCKET"] = "logflow-test-unavailable"
+        os.environ["S3_REGION"] = "us-east-1"
+        server_addr = ('127.0.0.1', 10102)
+        stop_event = threading.Event()
+        ready_event = threading.Event()
+        error_triggered = threading.Event()
+        error_holder = []
+        def callback(msg):
+            pass
+        def server():
+            import asyncio
+            from logflow.sink import S3Sink
+            async def run():
+                try:
+                    await run_logflow_server(
+                        ip=server_addr[0], port=server_addr[1],
+                        sinks=[S3Sink()],
+                        received_callback=callback,
+                        batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event,
+                        ready_event=ready_event
+                    )
+                except Exception as e:
+                    print('[test] Exception in server:', e)
+                    error_holder.append(e)
+                    error_triggered.set()
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        ready_event.wait(timeout=5)
+        time.sleep(0.2)
+        # Act: Send UDP packet
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = b'{"msg": "s3-unavailable-test"}'
+        sock.sendto(msg, server_addr)
+        # Wait for error
+        error = error_triggered.wait(timeout=3)
+        stop_event.set()
+        thread.join(timeout=2)
+        print('[test] S3 error_holder:', error_holder)
+>       assert error, f"S3 unavailable error not triggered or not handled gracefully. error_holder={error_holder}"
+E       AssertionError: S3 unavailable error not triggered or not handled gracefully. error_holder=[]
+E       assert False
+
+tests/integration/test_failure_modes.py:101: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[test] S3 error_holder: []
+_________________ TestHealthCheck.test_health_endpoint_healthy _________________
+
+self = <integration.test_health_check.TestHealthCheck object at 0x10d983010>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_health_endpoint_healthy0')
+
+    def test_health_endpoint_healthy(self, tmp_path):
+        """Start logflow and verify health endpoint returns healthy status."""
+        # Arrange
+        server_addr = ('127.0.0.1', 10201)
+        output_dir = tmp_path / "logs"
+        output_dir.mkdir()
+        stop_event = threading.Event()
+        def server():
+            import asyncio
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0], port=server_addr[1],
+                    sinks=[DiskSink(str(output_dir))],
+                    batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event,
+                    health_port=10202
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(1)
+        # Act
+        resp = requests.get("http://127.0.0.1:10202/health")
+        stop_event.set()
+        thread.join(timeout=2)
+        # Assert
+>       assert resp.status_code == 200
+E       assert 404 == 200
+E        +  where 404 = <Response [404]>.status_code
+
+tests/integration/test_health_check.py:35: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[listener] Preparing to listen for UDP logs on 127.0.0.1:10201
+[listener] UDP socket info: sockname=('127.0.0.1', 10201), family=2, type=2, proto=17
+[listener] Health check endpoint running on :10202/healthz
+________________ TestHealthCheck.test_health_endpoint_unhealthy ________________
+
+self = <urllib3.connection.HTTPConnection object at 0x10dea78d0>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+>           sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:198: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/connection.py:85: in create_connection
+    raise err
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+address = ('127.0.0.1', 10204), timeout = None, source_address = None
+socket_options = [(6, 1, 1)]
+
+    def create_connection(
+        address: tuple[str, int],
+        timeout: _TYPE_TIMEOUT = _DEFAULT_TIMEOUT,
+        source_address: tuple[str, int] | None = None,
+        socket_options: _TYPE_SOCKET_OPTIONS | None = None,
+    ) -> socket.socket:
+        """Connect to *address* and return the socket object.
+    
+        Convenience function.  Connect to *address* (a 2-tuple ``(host,
+        port)``) and return the socket object.  Passing the optional
+        *timeout* parameter will set the timeout on the socket instance
+        before attempting to connect.  If no *timeout* is supplied, the
+        global default timeout setting returned by :func:`socket.getdefaulttimeout`
+        is used.  If *source_address* is set it must be a tuple of (host, port)
+        for the socket to bind as a source address before making the connection.
+        An host of '' or port 0 tells the OS to use the default.
+        """
+    
+        host, port = address
+        if host.startswith("["):
+            host = host.strip("[]")
+        err = None
+    
+        # Using the value from allowed_gai_family() in the context of getaddrinfo lets
+        # us select whether to work with IPv4 DNS records, IPv6 records, or both.
+        # The original create_connection function always returns all records.
+        family = allowed_gai_family()
+    
+        try:
+            host.encode("idna")
+        except UnicodeError:
+            raise LocationParseError(f"'{host}', label empty or too long") from None
+    
+        for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+            af, socktype, proto, canonname, sa = res
+            sock = None
+            try:
+                sock = socket.socket(af, socktype, proto)
+    
+                # If provided, set socket level options before connecting.
+                _set_socket_options(sock, socket_options)
+    
+                if timeout is not _DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                if source_address:
+                    sock.bind(source_address)
+>               sock.connect(sa)
+E               ConnectionRefusedError: [Errno 61] Connection refused
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/connection.py:73: ConnectionRefusedError
+
+The above exception was the direct cause of the following exception:
+
+self = <urllib3.connectionpool.HTTPConnectionPool object at 0x10dea76d0>
+method = 'GET', url = '/health', body = None
+headers = {'User-Agent': 'python-requests/2.32.3', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive'}
+retries = Retry(total=0, connect=None, read=False, redirect=None, status=None)
+redirect = False, assert_same_host = False
+timeout = Timeout(connect=None, read=None, total=None), pool_timeout = None
+release_conn = False, chunked = False, body_pos = None, preload_content = False
+decode_content = False, response_kw = {}
+parsed_url = Url(scheme=None, auth=None, host=None, port=None, path='/health', query=None, fragment=None)
+destination_scheme = None, conn = None, release_this_conn = True
+http_tunnel_required = False, err = None, clean_exit = False
+
+    def urlopen(  # type: ignore[override]
+        self,
+        method: str,
+        url: str,
+        body: _TYPE_BODY | None = None,
+        headers: typing.Mapping[str, str] | None = None,
+        retries: Retry | bool | int | None = None,
+        redirect: bool = True,
+        assert_same_host: bool = True,
+        timeout: _TYPE_TIMEOUT = _DEFAULT_TIMEOUT,
+        pool_timeout: int | None = None,
+        release_conn: bool | None = None,
+        chunked: bool = False,
+        body_pos: _TYPE_BODY_POSITION | None = None,
+        preload_content: bool = True,
+        decode_content: bool = True,
+        **response_kw: typing.Any,
+    ) -> BaseHTTPResponse:
+        """
+        Get a connection from the pool and perform an HTTP request. This is the
+        lowest level call for making a request, so you'll need to specify all
+        the raw details.
+    
+        .. note::
+    
+           More commonly, it's appropriate to use a convenience method
+           such as :meth:`request`.
+    
+        .. note::
+    
+           `release_conn` will only behave as expected if
+           `preload_content=False` because we want to make
+           `preload_content=False` the default behaviour someday soon without
+           breaking backwards compatibility.
+    
+        :param method:
+            HTTP request method (such as GET, POST, PUT, etc.)
+    
+        :param url:
+            The URL to perform the request on.
+    
+        :param body:
+            Data to send in the request body, either :class:`str`, :class:`bytes`,
+            an iterable of :class:`str`/:class:`bytes`, or a file-like object.
+    
+        :param headers:
+            Dictionary of custom headers to send, such as User-Agent,
+            If-None-Match, etc. If None, pool headers are used. If provided,
+            these headers completely replace any pool-specific headers.
+    
+        :param retries:
+            Configure the number of retries to allow before raising a
+            :class:`~urllib3.exceptions.MaxRetryError` exception.
+    
+            If ``None`` (default) will retry 3 times, see ``Retry.DEFAULT``. Pass a
+            :class:`~urllib3.util.retry.Retry` object for fine-grained control
+            over different types of retries.
+            Pass an integer number to retry connection errors that many times,
+            but no other types of errors. Pass zero to never retry.
+    
+            If ``False``, then retries are disabled and any exception is raised
+            immediately. Also, instead of raising a MaxRetryError on redirects,
+            the redirect response will be returned.
+    
+        :type retries: :class:`~urllib3.util.retry.Retry`, False, or an int.
+    
+        :param redirect:
+            If True, automatically handle redirects (status codes 301, 302,
+            303, 307, 308). Each redirect counts as a retry. Disabling retries
+            will disable redirect, too.
+    
+        :param assert_same_host:
+            If ``True``, will make sure that the host of the pool requests is
+            consistent else will raise HostChangedError. When ``False``, you can
+            use the pool on an HTTP proxy and request foreign hosts.
+    
+        :param timeout:
+            If specified, overrides the default timeout for this one
+            request. It may be a float (in seconds) or an instance of
+            :class:`urllib3.util.Timeout`.
+    
+        :param pool_timeout:
+            If set and the pool is set to block=True, then this method will
+            block for ``pool_timeout`` seconds and raise EmptyPoolError if no
+            connection is available within the time period.
+    
+        :param bool preload_content:
+            If True, the response's body will be preloaded into memory.
+    
+        :param bool decode_content:
+            If True, will attempt to decode the body based on the
+            'content-encoding' header.
+    
+        :param release_conn:
+            If False, then the urlopen call will not release the connection
+            back into the pool once a response is received (but will release if
+            you read the entire contents of the response such as when
+            `preload_content=True`). This is useful if you're not preloading
+            the response's content immediately. You will need to call
+            ``r.release_conn()`` on the response ``r`` to return the connection
+            back into the pool. If None, it takes the value of ``preload_content``
+            which defaults to ``True``.
+    
+        :param bool chunked:
+            If True, urllib3 will send the body using chunked transfer
+            encoding. Otherwise, urllib3 will send the body using the standard
+            content-length form. Defaults to False.
+    
+        :param int body_pos:
+            Position to seek to in file-like body in the event of a retry or
+            redirect. Typically this won't need to be set because urllib3 will
+            auto-populate the value when needed.
+        """
+        parsed_url = parse_url(url)
+        destination_scheme = parsed_url.scheme
+    
+        if headers is None:
+            headers = self.headers
+    
+        if not isinstance(retries, Retry):
+            retries = Retry.from_int(retries, redirect=redirect, default=self.retries)
+    
+        if release_conn is None:
+            release_conn = preload_content
+    
+        # Check host
+        if assert_same_host and not self.is_same_host(url):
+            raise HostChangedError(self, url, retries)
+    
+        # Ensure that the URL we're connecting to is properly encoded
+        if url.startswith("/"):
+            url = to_str(_encode_target(url))
+        else:
+            url = to_str(parsed_url.url)
+    
+        conn = None
+    
+        # Track whether `conn` needs to be released before
+        # returning/raising/recursing. Update this variable if necessary, and
+        # leave `release_conn` constant throughout the function. That way, if
+        # the function recurses, the original value of `release_conn` will be
+        # passed down into the recursive call, and its value will be respected.
+        #
+        # See issue #651 [1] for details.
+        #
+        # [1] <https://github.com/urllib3/urllib3/issues/651>
+        release_this_conn = release_conn
+    
+        http_tunnel_required = connection_requires_http_tunnel(
+            self.proxy, self.proxy_config, destination_scheme
+        )
+    
+        # Merge the proxy headers. Only done when not using HTTP CONNECT. We
+        # have to copy the headers dict so we can safely change it without those
+        # changes being reflected in anyone else's copy.
+        if not http_tunnel_required:
+            headers = headers.copy()  # type: ignore[attr-defined]
+            headers.update(self.proxy_headers)  # type: ignore[union-attr]
+    
+        # Must keep the exception bound to a separate variable or else Python 3
+        # complains about UnboundLocalError.
+        err = None
+    
+        # Keep track of whether we cleanly exited the except block. This
+        # ensures we do proper cleanup in finally.
+        clean_exit = False
+    
+        # Rewind body position, if needed. Record current position
+        # for future rewinds in the event of a redirect/retry.
+        body_pos = set_file_position(body, body_pos)
+    
+        try:
+            # Request a connection from the queue.
+            timeout_obj = self._get_timeout(timeout)
+            conn = self._get_conn(timeout=pool_timeout)
+    
+            conn.timeout = timeout_obj.connect_timeout  # type: ignore[assignment]
+    
+            # Is this a closed/new connection that requires CONNECT tunnelling?
+            if self.proxy is not None and http_tunnel_required and conn.is_closed:
+                try:
+                    self._prepare_proxy(conn)
+                except (BaseSSLError, OSError, SocketTimeout) as e:
+                    self._raise_timeout(
+                        err=e, url=self.proxy.url, timeout_value=conn.timeout
+                    )
+                    raise
+    
+            # If we're going to release the connection in ``finally:``, then
+            # the response doesn't need to know about the connection. Otherwise
+            # it will also try to release it and we'll have a double-release
+            # mess.
+            response_conn = conn if not release_conn else None
+    
+            # Make the request on the HTTPConnection object
+>           response = self._make_request(
+                conn,
+                method,
+                url,
+                timeout=timeout_obj,
+                body=body,
+                headers=headers,
+                chunked=chunked,
+                retries=retries,
+                response_conn=response_conn,
+                preload_content=preload_content,
+                decode_content=decode_content,
+                **response_kw,
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:787: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:493: in _make_request
+    conn.request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:445: in request
+    self.endheaders()
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:1298: in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:1058: in _send_output
+    self.send(msg)
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:996: in send
+    self.connect()
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:276: in connect
+    self.sock = self._new_conn()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <urllib3.connection.HTTPConnection object at 0x10dea78d0>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+            sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+        except socket.gaierror as e:
+            raise NameResolutionError(self.host, self, e) from e
+        except SocketTimeout as e:
+            raise ConnectTimeoutError(
+                self,
+                f"Connection to {self.host} timed out. (connect timeout={self.timeout})",
+            ) from e
+    
+        except OSError as e:
+>           raise NewConnectionError(
+                self, f"Failed to establish a new connection: {e}"
+            ) from e
+E           urllib3.exceptions.NewConnectionError: <urllib3.connection.HTTPConnection object at 0x10dea78d0>: Failed to establish a new connection: [Errno 61] Connection refused
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:213: NewConnectionError
+
+The above exception was the direct cause of the following exception:
+
+self = <requests.adapters.HTTPAdapter object at 0x10dee8ed0>
+request = <PreparedRequest [GET]>, stream = False
+timeout = Timeout(connect=None, read=None, total=None), verify = True
+cert = None, proxies = OrderedDict()
+
+    def send(
+        self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None
+    ):
+        """Sends PreparedRequest object. Returns Response object.
+    
+        :param request: The :class:`PreparedRequest <PreparedRequest>` being sent.
+        :param stream: (optional) Whether to stream the request content.
+        :param timeout: (optional) How long to wait for the server to send
+            data before giving up, as a float, or a :ref:`(connect timeout,
+            read timeout) <timeouts>` tuple.
+        :type timeout: float or tuple or urllib3 Timeout object
+        :param verify: (optional) Either a boolean, in which case it controls whether
+            we verify the server's TLS certificate, or a string, in which case it
+            must be a path to a CA bundle to use
+        :param cert: (optional) Any user-provided SSL certificate to be trusted.
+        :param proxies: (optional) The proxies dictionary to apply to the request.
+        :rtype: requests.Response
+        """
+    
+        try:
+            conn = self.get_connection_with_tls_context(
+                request, verify, proxies=proxies, cert=cert
+            )
+        except LocationValueError as e:
+            raise InvalidURL(e, request=request)
+    
+        self.cert_verify(conn, request.url, verify, cert)
+        url = self.request_url(request, proxies)
+        self.add_headers(
+            request,
+            stream=stream,
+            timeout=timeout,
+            verify=verify,
+            cert=cert,
+            proxies=proxies,
+        )
+    
+        chunked = not (request.body is None or "Content-Length" in request.headers)
+    
+        if isinstance(timeout, tuple):
+            try:
+                connect, read = timeout
+                timeout = TimeoutSauce(connect=connect, read=read)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid timeout {timeout}. Pass a (connect, read) timeout tuple, "
+                    f"or a single float to set both timeouts to the same value."
+                )
+        elif isinstance(timeout, TimeoutSauce):
+            pass
+        else:
+            timeout = TimeoutSauce(connect=timeout, read=timeout)
+    
+        try:
+>           resp = conn.urlopen(
+                method=request.method,
+                url=url,
+                body=request.body,
+                headers=request.headers,
+                redirect=False,
+                assert_same_host=False,
+                preload_content=False,
+                decode_content=False,
+                retries=self.max_retries,
+                timeout=timeout,
+                chunked=chunked,
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/requests/adapters.py:667: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = Retry(total=0, connect=None, read=False, redirect=None, status=None)
+method = 'GET', url = '/health', response = None
+error = NewConnectionError('<urllib3.connection.HTTPConnection object at 0x10dea78d0>: Failed to establish a new connection: [Errno 61] Connection refused')
+_pool = <urllib3.connectionpool.HTTPConnectionPool object at 0x10dea76d0>
+_stacktrace = <traceback object at 0x10dea7940>
+
+    def increment(
+        self,
+        method: str | None = None,
+        url: str | None = None,
+        response: BaseHTTPResponse | None = None,
+        error: Exception | None = None,
+        _pool: ConnectionPool | None = None,
+        _stacktrace: TracebackType | None = None,
+    ) -> Self:
+        """Return a new Retry object with incremented retry counters.
+    
+        :param response: A response object, or None, if the server did not
+            return a response.
+        :type response: :class:`~urllib3.response.BaseHTTPResponse`
+        :param Exception error: An error encountered during the request, or
+            None if the response was received successfully.
+    
+        :return: A new ``Retry`` object.
+        """
+        if self.total is False and error:
+            # Disabled, indicate to re-raise the error.
+            raise reraise(type(error), error, _stacktrace)
+    
+        total = self.total
+        if total is not None:
+            total -= 1
+    
+        connect = self.connect
+        read = self.read
+        redirect = self.redirect
+        status_count = self.status
+        other = self.other
+        cause = "unknown"
+        status = None
+        redirect_location = None
+    
+        if error and self._is_connection_error(error):
+            # Connect retry?
+            if connect is False:
+                raise reraise(type(error), error, _stacktrace)
+            elif connect is not None:
+                connect -= 1
+    
+        elif error and self._is_read_error(error):
+            # Read retry?
+            if read is False or method is None or not self._is_method_retryable(method):
+                raise reraise(type(error), error, _stacktrace)
+            elif read is not None:
+                read -= 1
+    
+        elif error:
+            # Other retry?
+            if other is not None:
+                other -= 1
+    
+        elif response and response.get_redirect_location():
+            # Redirect retry?
+            if redirect is not None:
+                redirect -= 1
+            cause = "too many redirects"
+            response_redirect_location = response.get_redirect_location()
+            if response_redirect_location:
+                redirect_location = response_redirect_location
+            status = response.status
+    
+        else:
+            # Incrementing because of a server error like a 500 in
+            # status_forcelist and the given method is in the allowed_methods
+            cause = ResponseError.GENERIC_ERROR
+            if response and response.status:
+                if status_count is not None:
+                    status_count -= 1
+                cause = ResponseError.SPECIFIC_ERROR.format(status_code=response.status)
+                status = response.status
+    
+        history = self.history + (
+            RequestHistory(method, url, error, status, redirect_location),
+        )
+    
+        new_retry = self.new(
+            total=total,
+            connect=connect,
+            read=read,
+            redirect=redirect,
+            status=status_count,
+            other=other,
+            history=history,
+        )
+    
+        if new_retry.is_exhausted():
+            reason = error or ResponseError(cause)
+>           raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+E           urllib3.exceptions.MaxRetryError: HTTPConnectionPool(host='127.0.0.1', port=10204): Max retries exceeded with url: /health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x10dea78d0>: Failed to establish a new connection: [Errno 61] Connection refused'))
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/retry.py:519: MaxRetryError
+
+During handling of the above exception, another exception occurred:
+
+self = <integration.test_health_check.TestHealthCheck object at 0x10d983850>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_health_endpoint_unhealthy0')
+
+    def test_health_endpoint_unhealthy(self, tmp_path):
+        """Induce a failure (e.g., S3 unreachable) and verify health endpoint status."""
+        # Arrange: Use bogus S3 endpoint
+        import os
+        os.environ["S3_ENDPOINT"] = "http://127.0.0.1:9991"
+        os.environ["S3_ACCESS_KEY"] = "minioadmin"
+        os.environ["S3_SECRET_KEY"] = "minioadmin"
+        os.environ["S3_BUCKET"] = "logflow-health-unhealthy"
+        os.environ["S3_REGION"] = "us-east-1"
+        server_addr = ('127.0.0.1', 10203)
+        stop_event = threading.Event()
+        def server():
+            import asyncio
+            from logflow.sink import S3Sink
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0], port=server_addr[1],
+                    sinks=[S3Sink()],
+                    batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event,
+                    health_port=10204
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(1)
+        # Act
+>       resp = requests.get("http://127.0.0.1:10204/health")
+
+tests/integration/test_health_check.py:64: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/requests/api.py:73: in get
+    return request("get", url, params=params, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/requests/api.py:59: in request
+    return session.request(method=method, url=url, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/requests/sessions.py:589: in request
+    resp = self.send(prep, **send_kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/requests/sessions.py:703: in send
+    r = adapter.send(request, **kwargs)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <requests.adapters.HTTPAdapter object at 0x10dee8ed0>
+request = <PreparedRequest [GET]>, stream = False
+timeout = Timeout(connect=None, read=None, total=None), verify = True
+cert = None, proxies = OrderedDict()
+
+    def send(
+        self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None
+    ):
+        """Sends PreparedRequest object. Returns Response object.
+    
+        :param request: The :class:`PreparedRequest <PreparedRequest>` being sent.
+        :param stream: (optional) Whether to stream the request content.
+        :param timeout: (optional) How long to wait for the server to send
+            data before giving up, as a float, or a :ref:`(connect timeout,
+            read timeout) <timeouts>` tuple.
+        :type timeout: float or tuple or urllib3 Timeout object
+        :param verify: (optional) Either a boolean, in which case it controls whether
+            we verify the server's TLS certificate, or a string, in which case it
+            must be a path to a CA bundle to use
+        :param cert: (optional) Any user-provided SSL certificate to be trusted.
+        :param proxies: (optional) The proxies dictionary to apply to the request.
+        :rtype: requests.Response
+        """
+    
+        try:
+            conn = self.get_connection_with_tls_context(
+                request, verify, proxies=proxies, cert=cert
+            )
+        except LocationValueError as e:
+            raise InvalidURL(e, request=request)
+    
+        self.cert_verify(conn, request.url, verify, cert)
+        url = self.request_url(request, proxies)
+        self.add_headers(
+            request,
+            stream=stream,
+            timeout=timeout,
+            verify=verify,
+            cert=cert,
+            proxies=proxies,
+        )
+    
+        chunked = not (request.body is None or "Content-Length" in request.headers)
+    
+        if isinstance(timeout, tuple):
+            try:
+                connect, read = timeout
+                timeout = TimeoutSauce(connect=connect, read=read)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid timeout {timeout}. Pass a (connect, read) timeout tuple, "
+                    f"or a single float to set both timeouts to the same value."
+                )
+        elif isinstance(timeout, TimeoutSauce):
+            pass
+        else:
+            timeout = TimeoutSauce(connect=timeout, read=timeout)
+    
+        try:
+            resp = conn.urlopen(
+                method=request.method,
+                url=url,
+                body=request.body,
+                headers=request.headers,
+                redirect=False,
+                assert_same_host=False,
+                preload_content=False,
+                decode_content=False,
+                retries=self.max_retries,
+                timeout=timeout,
+                chunked=chunked,
+            )
+    
+        except (ProtocolError, OSError) as err:
+            raise ConnectionError(err, request=request)
+    
+        except MaxRetryError as e:
+            if isinstance(e.reason, ConnectTimeoutError):
+                # TODO: Remove this in 3.0.0: see #2811
+                if not isinstance(e.reason, NewConnectionError):
+                    raise ConnectTimeout(e, request=request)
+    
+            if isinstance(e.reason, ResponseError):
+                raise RetryError(e, request=request)
+    
+            if isinstance(e.reason, _ProxyError):
+                raise ProxyError(e, request=request)
+    
+            if isinstance(e.reason, _SSLError):
+                # This branch is for urllib3 v1.22 and later.
+                raise SSLError(e, request=request)
+    
+>           raise ConnectionError(e, request=request)
+E           requests.exceptions.ConnectionError: HTTPConnectionPool(host='127.0.0.1', port=10204): Max retries exceeded with url: /health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x10dea78d0>: Failed to establish a new connection: [Errno 61] Connection refused'))
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/requests/adapters.py:700: ConnectionError
+________________________________ test_ipc_tail _________________________________
+
+    @pytest.mark.integration
+    @pytest.mark.timeout(30)
+    def test_ipc_tail():
+        # Ensure no lingering logflow.listener processes
+        print("[TEST] Killing any lingering logflow.listener processes...")
+        try:
+            subprocess.run(["pkill", "-f", "logflow.listener"], check=False)
+            time.sleep(0.5)  # Give the OS a moment to reap
+        except Exception as e:
+            print(f"[TEST] pkill failed: {e}")
+    
+        sock_path = "/tmp/logflow-listener-test.sock"
+        udp_port = get_free_udp_port()
+        health_port = get_free_tcp_port()
+        print(f"[TEST] Using UDP port {udp_port}, health port {health_port}")
+        env = os.environ.copy()
+        env["LOGFLOW_IPC_SOCKET"] = sock_path
+        env["UDP_LOG_LISTEN_PORT"] = str(udp_port)
+        env["UDP_BATCH_INTERVAL"] = "0.1"
+        env["LOGFLOW_HEALTH_PORT"] = str(health_port)
+        print("[TEST] Cleaning up socket if exists...")
+        try:
+            os.unlink(sock_path)
+        except FileNotFoundError:
+            pass
+        print("[TEST] Starting primary listener...")
+        primary = subprocess.Popen(
+            [sys.executable, "-m", "logflow.listener"],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        for i in range(50):
+            if os.path.exists(sock_path):
+                print(f"[TEST] IPC socket created after {i*0.1:.1f}s.")
+                break
+            if primary.poll() is not None:
+                print("[TEST] Primary exited early:", primary.stdout.read())
+                assert False, "Primary exited before IPC socket was created"
+            time.sleep(0.1)
+        else:
+            primary.terminate()
+            print("[TEST] Timeout waiting for IPC socket.")
+            assert False, f"IPC socket {sock_path} was not created in time"
+        print("[TEST] Starting tail client...")
+        tail = subprocess.Popen(
+            [sys.executable, "-m", "logflow.listener"],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        time.sleep(1.0)
+        print("[TEST] Sending UDP log message...")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = b"test-ipc-tail-message"
+        sock.sendto(msg, ("127.0.0.1", udp_port))
+    
+        print("[TEST] Waiting for output from both processes (non-blocking)...")
+        found_primary = found_tail = False
+        primary_out = ""
+        tail_out = ""
+        for j in range(50):
+            # Non-blocking read using select
+            for proc, name in [(primary, "primary"), (tail, "tail")]:
+                if proc.stdout:
+                    rlist, _, _ = select.select([proc.stdout], [], [], 0)
+                    if rlist:
+                        try:
+                            chunk = os.read(proc.stdout.fileno(), 4096).decode(errors="replace")
+                            if name == "primary":
+                                primary_out += chunk
+                            else:
+                                tail_out += chunk
+                        except Exception as e:
+                            print(f"[TEST] Exception reading {name} stdout: {e}")
+            if "test-ipc-tail-message" in primary_out:
+                found_primary = True
+            if "test-ipc-tail-message" in tail_out:
+                found_tail = True
+            if found_primary and found_tail:
+                print(f"[TEST] Both outputs found after {j*0.1:.1f}s.")
+                break
+            time.sleep(0.1)
+        print("[TEST] Terminating both processes...")
+        primary.terminate()
+        tail.terminate()
+        try:
+            primary.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            print("[TEST] Primary did not exit, killing...")
+            primary.kill()
+        try:
+            tail.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            print("[TEST] Tail did not exit, killing...")
+            tail.kill()
+        print("[TEST] Collecting any remaining output with communicate...")
+        try:
+            p_remain, _ = primary.communicate(timeout=2)
+            primary_out += p_remain
+        except Exception as e:
+            print(f"[TEST] Primary communicate failed: {e}")
+        try:
+            t_remain, _ = tail.communicate(timeout=2)
+            tail_out += t_remain
+        except Exception as e:
+            print(f"[TEST] Tail communicate failed: {e}")
+        print("PRIMARY OUT:\n", primary_out)
+        print("TAIL OUT:\n", tail_out)
+        assert "test-ipc-tail-message" in primary_out
+>       assert "test-ipc-tail-message" in tail_out
+E       AssertionError: assert 'test-ipc-tail-message' in ''
+
+tests/integration/test_ipc_tail.py:135: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[TEST] Killing any lingering logflow.listener processes...
+[TEST] Using UDP port 49874, health port 60230
+[TEST] Cleaning up socket if exists...
+[TEST] Starting primary listener...
+[TEST] IPC socket created after 0.6s.
+[TEST] Starting tail client...
+[TEST] Sending UDP log message...
+[TEST] Waiting for output from both processes (non-blocking)...
+[TEST] Terminating both processes...
+[TEST] Collecting any remaining output with communicate...
+PRIMARY OUT:
+ [IPCServer] Initialized with max_clients=5
+[listener] Preparing to listen for UDP logs on 0.0.0.0:49874
+[listener] UDP socket info: sockname=('0.0.0.0', 49874), family=2, type=2, proto=17
+[listener] Health check endpoint running on :60230/healthz
+[IPCServer] Accepting connection. Current clients: 0 / 5
+[logflow] Tail client connected. Total: 1
+[UDPHandler] datagram_received called from ('127.0.0.1', 64563)
+[UDPHandler] Received datagram from ('127.0.0.1', 64563): test-ipc-tail-message
+[batch_and_upload] Got message from queue: test-ipc-tail-message
+[batch_and_upload] Flushing batch: ['test-ipc-tail-message']
+[batch_and_upload] Writing to sink: <__main__.MultiplexedStdoutSink object at 0x111027950>
+[batch_and_upload] About to call sink.write_batch with: ['test-ipc-tail-message']
+[StdoutSink] Log batch:
+test-ipc-tail-message
+
+TAIL OUT:
+ 
+_______________ TestRetentionLifecycle.test_s3_lifecycle_policy ________________
+
+self = <botocore.awsrequest.AWSHTTPConnection object at 0x116bd5190>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+>           sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:198: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/connection.py:85: in create_connection
+    raise err
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+address = ('127.0.0.1', 9000), timeout = 60, source_address = None
+socket_options = [(6, 1, 1)]
+
+    def create_connection(
+        address: tuple[str, int],
+        timeout: _TYPE_TIMEOUT = _DEFAULT_TIMEOUT,
+        source_address: tuple[str, int] | None = None,
+        socket_options: _TYPE_SOCKET_OPTIONS | None = None,
+    ) -> socket.socket:
+        """Connect to *address* and return the socket object.
+    
+        Convenience function.  Connect to *address* (a 2-tuple ``(host,
+        port)``) and return the socket object.  Passing the optional
+        *timeout* parameter will set the timeout on the socket instance
+        before attempting to connect.  If no *timeout* is supplied, the
+        global default timeout setting returned by :func:`socket.getdefaulttimeout`
+        is used.  If *source_address* is set it must be a tuple of (host, port)
+        for the socket to bind as a source address before making the connection.
+        An host of '' or port 0 tells the OS to use the default.
+        """
+    
+        host, port = address
+        if host.startswith("["):
+            host = host.strip("[]")
+        err = None
+    
+        # Using the value from allowed_gai_family() in the context of getaddrinfo lets
+        # us select whether to work with IPv4 DNS records, IPv6 records, or both.
+        # The original create_connection function always returns all records.
+        family = allowed_gai_family()
+    
+        try:
+            host.encode("idna")
+        except UnicodeError:
+            raise LocationParseError(f"'{host}', label empty or too long") from None
+    
+        for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+            af, socktype, proto, canonname, sa = res
+            sock = None
+            try:
+                sock = socket.socket(af, socktype, proto)
+    
+                # If provided, set socket level options before connecting.
+                _set_socket_options(sock, socket_options)
+    
+                if timeout is not _DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                if source_address:
+                    sock.bind(source_address)
+>               sock.connect(sa)
+E               ConnectionRefusedError: [Errno 61] Connection refused
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/connection.py:73: ConnectionRefusedError
+
+The above exception was the direct cause of the following exception:
+
+self = <botocore.httpsession.URLLib3Session object at 0x116b89610>
+request = <AWSPreparedRequest stream_output=False, method=GET, url=http://127.0.0.1:9000/logflow-lifecycle-test?list-type=2&enco...22d2ad6cdc', 'amz-sdk-invocation-id': b'ee81b18a-fcab-4f2e-9184-1ff804552ca1', 'amz-sdk-request': b'attempt=5; max=5'}>
+
+    def send(self, request):
+        try:
+            proxy_url = self._proxy_config.proxy_url_for(request.url)
+            manager = self._get_connection_manager(request.url, proxy_url)
+            conn = manager.connection_from_url(request.url)
+            self._setup_ssl_cert(conn, request.url, self._verify)
+            if ensure_boolean(
+                os.environ.get('BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER', '')
+            ):
+                # This is currently an "experimental" feature which provides
+                # no guarantees of backwards compatibility. It may be subject
+                # to change or removal in any patch version. Anyone opting in
+                # to this feature should strictly pin botocore.
+                host = urlparse(request.url).hostname
+                conn.proxy_headers['host'] = host
+    
+            request_target = self._get_request_target(request.url, proxy_url)
+>           urllib_response = conn.urlopen(
+                method=request.method,
+                url=request_target,
+                body=request.body,
+                headers=request.headers,
+                retries=Retry(False),
+                assert_same_host=False,
+                preload_content=False,
+                decode_content=False,
+                chunked=self._chunked(request.headers),
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/httpsession.py:464: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/retry.py:449: in increment
+    raise reraise(type(error), error, _stacktrace)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/util.py:39: in reraise
+    raise value
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:493: in _make_request
+    conn.request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/awsrequest.py:96: in request
+    rval = super().request(method, url, body, headers, *args, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:445: in request
+    self.endheaders()
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:1298: in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/awsrequest.py:123: in _send_output
+    self.send(msg)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/awsrequest.py:223: in send
+    return super().send(str)
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:996: in send
+    self.connect()
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:276: in connect
+    self.sock = self._new_conn()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <botocore.awsrequest.AWSHTTPConnection object at 0x116bd5190>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+            sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+        except socket.gaierror as e:
+            raise NameResolutionError(self.host, self, e) from e
+        except SocketTimeout as e:
+            raise ConnectTimeoutError(
+                self,
+                f"Connection to {self.host} timed out. (connect timeout={self.timeout})",
+            ) from e
+    
+        except OSError as e:
+>           raise NewConnectionError(
+                self, f"Failed to establish a new connection: {e}"
+            ) from e
+E           urllib3.exceptions.NewConnectionError: <botocore.awsrequest.AWSHTTPConnection object at 0x116bd5190>: Failed to establish a new connection: [Errno 61] Connection refused
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:213: NewConnectionError
+
+During handling of the above exception, another exception occurred:
+
+self = <integration.test_retention_lifecycle.TestRetentionLifecycle object at 0x10d995a90>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_s3_lifecycle_policy0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x116148910>
+
+    def test_s3_lifecycle_policy(self, tmp_path, monkeypatch):
+        """Test that S3 lifecycle policies do not interfere with logflow operation."""
+        # This test assumes S3/MinIO is running and lifecycle policy is set externally.
+        os.environ["S3_ENDPOINT"] = "http://127.0.0.1:9000"
+        os.environ["S3_ACCESS_KEY"] = "minioadmin"
+        os.environ["S3_SECRET_KEY"] = "minioadmin"
+        os.environ["S3_BUCKET"] = "logflow-lifecycle-test"
+        os.environ["S3_REGION"] = "us-east-1"
+        server_addr = ('127.0.0.1', 10701)
+        stop_event = threading.Event()
+        def callback(msg):
+            pass
+        def server():
+            import asyncio
+            from logflow.sink import S3Sink
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0], port=server_addr[1],
+                    sinks=[S3Sink()],
+                    received_callback=callback,
+                    batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+        # Act: Send UDP packet
+        sock = threading.Thread(target=lambda: [
+            __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_DGRAM).sendto(b'{"msg": "lifecycle-policy-test"}', server_addr)
+        ])
+        sock.start()
+        sock.join()
+        time.sleep(2)
+        stop_event.set()
+        thread.join(timeout=2)
+        # Assert: Check S3 for object
+        import boto3
+        s3 = boto3.client("s3", endpoint_url="http://127.0.0.1:9000", aws_access_key_id="minioadmin", aws_secret_access_key="minioadmin", region_name="us-east-1")
+        found = False
+>       resp = s3.list_objects_v2(Bucket="logflow-lifecycle-test")
+
+tests/integration/test_retention_lifecycle.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/client.py:570: in _api_call
+    return self._make_api_call(operation_name, kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/context.py:123: in wrapper
+    return func(*args, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/client.py:1013: in _make_api_call
+    http, parsed_response = self._make_request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/client.py:1037: in _make_request
+    return self._endpoint.make_request(operation_model, request_dict)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:119: in make_request
+    return self._send_request(request_dict, operation_model)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:200: in _send_request
+    while self._needs_retry(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:360: in _needs_retry
+    responses = self._event_emitter.emit(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/hooks.py:412: in emit
+    return self._emitter.emit(aliased_event_name, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/hooks.py:256: in emit
+    return self._emit(event_name, kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/hooks.py:239: in _emit
+    response = handler(**kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:207: in __call__
+    if self._checker(**checker_kwargs):
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:284: in __call__
+    should_retry = self._should_retry(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:320: in _should_retry
+    return self._checker(attempt_number, response, caught_exception)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:363: in __call__
+    checker_response = checker(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:247: in __call__
+    return self._check_caught_exception(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:416: in _check_caught_exception
+    raise caught_exception
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:279: in _do_get_response
+    http_response = self._send(request)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:383: in _send
+    return self.http_session.send(request)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <botocore.httpsession.URLLib3Session object at 0x116b89610>
+request = <AWSPreparedRequest stream_output=False, method=GET, url=http://127.0.0.1:9000/logflow-lifecycle-test?list-type=2&enco...22d2ad6cdc', 'amz-sdk-invocation-id': b'ee81b18a-fcab-4f2e-9184-1ff804552ca1', 'amz-sdk-request': b'attempt=5; max=5'}>
+
+    def send(self, request):
+        try:
+            proxy_url = self._proxy_config.proxy_url_for(request.url)
+            manager = self._get_connection_manager(request.url, proxy_url)
+            conn = manager.connection_from_url(request.url)
+            self._setup_ssl_cert(conn, request.url, self._verify)
+            if ensure_boolean(
+                os.environ.get('BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER', '')
+            ):
+                # This is currently an "experimental" feature which provides
+                # no guarantees of backwards compatibility. It may be subject
+                # to change or removal in any patch version. Anyone opting in
+                # to this feature should strictly pin botocore.
+                host = urlparse(request.url).hostname
+                conn.proxy_headers['host'] = host
+    
+            request_target = self._get_request_target(request.url, proxy_url)
+            urllib_response = conn.urlopen(
+                method=request.method,
+                url=request_target,
+                body=request.body,
+                headers=request.headers,
+                retries=Retry(False),
+                assert_same_host=False,
+                preload_content=False,
+                decode_content=False,
+                chunked=self._chunked(request.headers),
+            )
+    
+            http_response = botocore.awsrequest.AWSResponse(
+                request.url,
+                urllib_response.status,
+                urllib_response.headers,
+                urllib_response,
+            )
+    
+            if not request.stream_output:
+                # Cause the raw stream to be exhausted immediately. We do it
+                # this way instead of using preload_content because
+                # preload_content will never buffer chunked responses
+                http_response.content
+    
+            return http_response
+        except URLLib3SSLError as e:
+            raise SSLError(endpoint_url=request.url, error=e)
+        except (NewConnectionError, socket.gaierror) as e:
+>           raise EndpointConnectionError(endpoint_url=request.url, error=e)
+E           botocore.exceptions.EndpointConnectionError: Could not connect to the endpoint URL: "http://127.0.0.1:9000/logflow-lifecycle-test?list-type=2&encoding-type=url"
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/httpsession.py:493: EndpointConnectionError
+___________________ TestRetentionLifecycle.test_disk_cleanup ___________________
+
+self = <integration.test_retention_lifecycle.TestRetentionLifecycle object at 0x10d996110>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_disk_cleanup0')
+
+    def test_disk_cleanup(self, tmp_path):
+        """Verify that disk log retention/cleanup deletes old files per policy."""
+        output_dir = tmp_path / "logs"
+        output_dir.mkdir()
+        server_addr = ('127.0.0.1', 10702)
+        stop_event = threading.Event()
+        file_written_event = threading.Event()
+        file_path_holder = {}
+        def on_write(path):
+            file_path_holder['path'] = path
+            file_written_event.set()
+        def callback(msg):
+            pass
+        def server():
+            import asyncio
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0], port=server_addr[1],
+                    sinks=[DiskSink(str(output_dir), on_write=on_write)],
+                    received_callback=callback,
+                    batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+        # Act: Send UDP packet
+        sock = threading.Thread(target=lambda: [
+            __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_DGRAM).sendto(b'{"msg": "retention-cleanup-test"}', server_addr)
+        ])
+        sock.start()
+        sock.join()
+        file_written = file_written_event.wait(timeout=3)
+        stop_event.set()
+        thread.join(timeout=2)
+        # Simulate retention policy: delete all files
+        shutil.rmtree(output_dir, ignore_errors=True)
+>       assert not os.listdir(output_dir), "Disk cleanup did not delete log files per retention policy."
+E       FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_disk_cleanup0/logs'
+
+tests/integration/test_retention_lifecycle.py:95: FileNotFoundError
+----------------------------- Captured stdout call -----------------------------
+[listener] Preparing to listen for UDP logs on 127.0.0.1:10702
+[listener] UDP socket info: sockname=('127.0.0.1', 10702), family=2, type=2, proto=17
+[listener] Health check endpoint running on :8080/healthz
+[UDPHandler] datagram_received called from ('127.0.0.1', 55169)
+[UDPHandler] Received datagram from ('127.0.0.1', 55169): {"msg": "retention-cleanup-test"}
+[UDPHandler] Calling received_callback with: {"msg": "retention-cleanup-test"}
+[batch_and_upload] Got message from queue: {"msg": "retention-cleanup-test"}
+[batch_and_upload] Flushing batch: ['{"msg": "retention-cleanup-test"}']
+[batch_and_upload] Writing to sink: <logflow.sink.DiskSink object at 0x117414ad0>
+[batch_and_upload] About to call sink.write_batch with: ['{"msg": "retention-cleanup-test"}']
+[DiskSink] Writing batch to /private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_disk_cleanup0/logs/logflow-2025-04-24T00-49-35.jsonl
+________________ TestRetrievalSearchTail.test_s3_log_retrieval _________________
+
+self = <botocore.awsrequest.AWSHTTPConnection object at 0x116bf0cd0>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+>           sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:198: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/connection.py:85: in create_connection
+    raise err
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+address = ('127.0.0.1', 9000), timeout = 60, source_address = None
+socket_options = [(6, 1, 1)]
+
+    def create_connection(
+        address: tuple[str, int],
+        timeout: _TYPE_TIMEOUT = _DEFAULT_TIMEOUT,
+        source_address: tuple[str, int] | None = None,
+        socket_options: _TYPE_SOCKET_OPTIONS | None = None,
+    ) -> socket.socket:
+        """Connect to *address* and return the socket object.
+    
+        Convenience function.  Connect to *address* (a 2-tuple ``(host,
+        port)``) and return the socket object.  Passing the optional
+        *timeout* parameter will set the timeout on the socket instance
+        before attempting to connect.  If no *timeout* is supplied, the
+        global default timeout setting returned by :func:`socket.getdefaulttimeout`
+        is used.  If *source_address* is set it must be a tuple of (host, port)
+        for the socket to bind as a source address before making the connection.
+        An host of '' or port 0 tells the OS to use the default.
+        """
+    
+        host, port = address
+        if host.startswith("["):
+            host = host.strip("[]")
+        err = None
+    
+        # Using the value from allowed_gai_family() in the context of getaddrinfo lets
+        # us select whether to work with IPv4 DNS records, IPv6 records, or both.
+        # The original create_connection function always returns all records.
+        family = allowed_gai_family()
+    
+        try:
+            host.encode("idna")
+        except UnicodeError:
+            raise LocationParseError(f"'{host}', label empty or too long") from None
+    
+        for res in socket.getaddrinfo(host, port, family, socket.SOCK_STREAM):
+            af, socktype, proto, canonname, sa = res
+            sock = None
+            try:
+                sock = socket.socket(af, socktype, proto)
+    
+                # If provided, set socket level options before connecting.
+                _set_socket_options(sock, socket_options)
+    
+                if timeout is not _DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                if source_address:
+                    sock.bind(source_address)
+>               sock.connect(sa)
+E               ConnectionRefusedError: [Errno 61] Connection refused
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/connection.py:73: ConnectionRefusedError
+
+The above exception was the direct cause of the following exception:
+
+self = <botocore.httpsession.URLLib3Session object at 0x116e8a290>
+request = <AWSPreparedRequest stream_output=False, method=GET, url=http://127.0.0.1:9000/logflow-integration-test?list-type=2&en...a1b06f4c15', 'amz-sdk-invocation-id': b'1267fa73-894b-4f20-95ff-73b6204a3d2e', 'amz-sdk-request': b'attempt=5; max=5'}>
+
+    def send(self, request):
+        try:
+            proxy_url = self._proxy_config.proxy_url_for(request.url)
+            manager = self._get_connection_manager(request.url, proxy_url)
+            conn = manager.connection_from_url(request.url)
+            self._setup_ssl_cert(conn, request.url, self._verify)
+            if ensure_boolean(
+                os.environ.get('BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER', '')
+            ):
+                # This is currently an "experimental" feature which provides
+                # no guarantees of backwards compatibility. It may be subject
+                # to change or removal in any patch version. Anyone opting in
+                # to this feature should strictly pin botocore.
+                host = urlparse(request.url).hostname
+                conn.proxy_headers['host'] = host
+    
+            request_target = self._get_request_target(request.url, proxy_url)
+>           urllib_response = conn.urlopen(
+                method=request.method,
+                url=request_target,
+                body=request.body,
+                headers=request.headers,
+                retries=Retry(False),
+                assert_same_host=False,
+                preload_content=False,
+                decode_content=False,
+                chunked=self._chunked(request.headers),
+            )
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/httpsession.py:464: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/retry.py:449: in increment
+    raise reraise(type(error), error, _stacktrace)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/util/util.py:39: in reraise
+    raise value
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connectionpool.py:493: in _make_request
+    conn.request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/awsrequest.py:96: in request
+    rval = super().request(method, url, body, headers, *args, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:445: in request
+    self.endheaders()
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:1298: in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/awsrequest.py:123: in _send_output
+    self.send(msg)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/awsrequest.py:223: in send
+    return super().send(str)
+../../.pyenv/versions/3.11.12/lib/python3.11/http/client.py:996: in send
+    self.connect()
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:276: in connect
+    self.sock = self._new_conn()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <botocore.awsrequest.AWSHTTPConnection object at 0x116bf0cd0>
+
+    def _new_conn(self) -> socket.socket:
+        """Establish a socket connection and set nodelay settings on it.
+    
+        :return: New socket connection.
+        """
+        try:
+            sock = connection.create_connection(
+                (self._dns_host, self.port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+        except socket.gaierror as e:
+            raise NameResolutionError(self.host, self, e) from e
+        except SocketTimeout as e:
+            raise ConnectTimeoutError(
+                self,
+                f"Connection to {self.host} timed out. (connect timeout={self.timeout})",
+            ) from e
+    
+        except OSError as e:
+>           raise NewConnectionError(
+                self, f"Failed to establish a new connection: {e}"
+            ) from e
+E           urllib3.exceptions.NewConnectionError: <botocore.awsrequest.AWSHTTPConnection object at 0x116bf0cd0>: Failed to establish a new connection: [Errno 61] Connection refused
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/urllib3/connection.py:213: NewConnectionError
+
+During handling of the above exception, another exception occurred:
+
+self = <integration.test_retrieval_search_tail.TestRetrievalSearchTail object at 0x10d997590>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_s3_log_retrieval0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1171a1310>
+
+    def test_s3_log_retrieval(self, tmp_path, monkeypatch):
+        """After logs are written to S3, fetch and validate log content."""
+        # This test assumes S3/MinIO is running and accessible.
+        # Arrange: Set up S3 environment
+        os.environ["S3_ENDPOINT"] = "http://127.0.0.1:9000"
+        os.environ["S3_ACCESS_KEY"] = "minioadmin"
+        os.environ["S3_SECRET_KEY"] = "minioadmin"
+        os.environ["S3_BUCKET"] = "logflow-integration-test"
+        os.environ["S3_REGION"] = "us-east-1"
+        server_addr = ('127.0.0.1', 10401)
+        stop_event = threading.Event()
+        def callback(msg):
+            pass
+        def server():
+            import asyncio
+            from logflow.sink import S3Sink
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0], port=server_addr[1],
+                    sinks=[S3Sink()],
+                    received_callback=callback,
+                    batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+        # Act: Send UDP packet
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = b'{"msg": "s3-retrieval-test"}'
+        sock.sendto(msg, server_addr)
+        time.sleep(2)
+        stop_event.set()
+        thread.join(timeout=2)
+        # Assert: Retrieve from S3
+        import boto3
+        s3 = boto3.client("s3", endpoint_url="http://127.0.0.1:9000", aws_access_key_id="minioadmin", aws_secret_access_key="minioadmin", region_name="us-east-1")
+        found = False
+>       resp = s3.list_objects_v2(Bucket="logflow-integration-test")
+
+tests/integration/test_retrieval_search_tail.py:50: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/client.py:570: in _api_call
+    return self._make_api_call(operation_name, kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/context.py:123: in wrapper
+    return func(*args, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/client.py:1013: in _make_api_call
+    http, parsed_response = self._make_request(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/client.py:1037: in _make_request
+    return self._endpoint.make_request(operation_model, request_dict)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:119: in make_request
+    return self._send_request(request_dict, operation_model)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:200: in _send_request
+    while self._needs_retry(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:360: in _needs_retry
+    responses = self._event_emitter.emit(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/hooks.py:412: in emit
+    return self._emitter.emit(aliased_event_name, **kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/hooks.py:256: in emit
+    return self._emit(event_name, kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/hooks.py:239: in _emit
+    response = handler(**kwargs)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:207: in __call__
+    if self._checker(**checker_kwargs):
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:284: in __call__
+    should_retry = self._should_retry(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:320: in _should_retry
+    return self._checker(attempt_number, response, caught_exception)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:363: in __call__
+    checker_response = checker(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:247: in __call__
+    return self._check_caught_exception(
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/retryhandler.py:416: in _check_caught_exception
+    raise caught_exception
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:279: in _do_get_response
+    http_response = self._send(request)
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/endpoint.py:383: in _send
+    return self.http_session.send(request)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <botocore.httpsession.URLLib3Session object at 0x116e8a290>
+request = <AWSPreparedRequest stream_output=False, method=GET, url=http://127.0.0.1:9000/logflow-integration-test?list-type=2&en...a1b06f4c15', 'amz-sdk-invocation-id': b'1267fa73-894b-4f20-95ff-73b6204a3d2e', 'amz-sdk-request': b'attempt=5; max=5'}>
+
+    def send(self, request):
+        try:
+            proxy_url = self._proxy_config.proxy_url_for(request.url)
+            manager = self._get_connection_manager(request.url, proxy_url)
+            conn = manager.connection_from_url(request.url)
+            self._setup_ssl_cert(conn, request.url, self._verify)
+            if ensure_boolean(
+                os.environ.get('BOTO_EXPERIMENTAL__ADD_PROXY_HOST_HEADER', '')
+            ):
+                # This is currently an "experimental" feature which provides
+                # no guarantees of backwards compatibility. It may be subject
+                # to change or removal in any patch version. Anyone opting in
+                # to this feature should strictly pin botocore.
+                host = urlparse(request.url).hostname
+                conn.proxy_headers['host'] = host
+    
+            request_target = self._get_request_target(request.url, proxy_url)
+            urllib_response = conn.urlopen(
+                method=request.method,
+                url=request_target,
+                body=request.body,
+                headers=request.headers,
+                retries=Retry(False),
+                assert_same_host=False,
+                preload_content=False,
+                decode_content=False,
+                chunked=self._chunked(request.headers),
+            )
+    
+            http_response = botocore.awsrequest.AWSResponse(
+                request.url,
+                urllib_response.status,
+                urllib_response.headers,
+                urllib_response,
+            )
+    
+            if not request.stream_output:
+                # Cause the raw stream to be exhausted immediately. We do it
+                # this way instead of using preload_content because
+                # preload_content will never buffer chunked responses
+                http_response.content
+    
+            return http_response
+        except URLLib3SSLError as e:
+            raise SSLError(endpoint_url=request.url, error=e)
+        except (NewConnectionError, socket.gaierror) as e:
+>           raise EndpointConnectionError(endpoint_url=request.url, error=e)
+E           botocore.exceptions.EndpointConnectionError: Could not connect to the endpoint URL: "http://127.0.0.1:9000/logflow-integration-test?list-type=2&encoding-type=url"
+
+../../.pyenv/versions/3.11.12/envs/3.11.12logflow/lib/python3.11/site-packages/botocore/httpsession.py:493: EndpointConnectionError
+_________________ TestRetrievalSearchTail.test_search_and_tail _________________
+
+self = <integration.test_retrieval_search_tail.TestRetrievalSearchTail object at 0x10d9a82d0>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_search_and_tail0')
+
+    def test_search_and_tail(self, tmp_path):
+        """Test searching for a term and tailing logs in both S3 and disk sinks (if CLI/API exists)."""
+        # For now, this test will simulate local disk search/tail.
+        output_dir = tmp_path / "logs"
+        output_dir.mkdir()
+        server_addr = ('127.0.0.1', 10403)
+        stop_event = threading.Event()
+        file_written_event = threading.Event()
+        file_path_holder = {}
+        def on_write(path):
+            file_path_holder['path'] = path
+            file_written_event.set()
+        def callback(msg):
+            pass
+        def server():
+            import asyncio
+            async def run():
+                await run_logflow_server(
+                    ip=server_addr[0], port=server_addr[1],
+                    sinks=[DiskSink(str(output_dir), on_write=on_write)],
+                    received_callback=callback,
+                    batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event
+                )
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+        # Act: Send UDP packet
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        msg = b'{"msg": "tail-search-test"}'
+        sock.sendto(msg, server_addr)
+        file_written = file_written_event.wait(timeout=3)
+        stop_event.set()
+        thread.join(timeout=2)
+        # Search
+>       assert file_written, "Disk log file was not written for search/tail test."
+E       AssertionError: Disk log file was not written for search/tail test.
+E       assert False
+
+tests/integration/test_retrieval_search_tail.py:133: AssertionError
+----------------------------- Captured stdout call -----------------------------
+[listener] Preparing to listen for UDP logs on 127.0.0.1:10403
+[listener] UDP socket info: sockname=('127.0.0.1', 10403), family=2, type=2, proto=17
+________________________________ test_udp_to_s3 ________________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x116af1a90>
+
+    @pytest.mark.integration
+    def test_udp_to_s3(monkeypatch):
+        # Arrange: Set env vars for MinIO/S3
+>       minio_ip = socket.gethostbyname("minio_logflow")
+E       socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+
+tests/integration/test_s3_sink.py:13: gaierror
+_________________ TestSecurityPermissions.test_s3_permissions __________________
+
+self = <integration.test_security_permissions.TestSecurityPermissions object at 0x10d9aa450>
+tmp_path = PosixPath('/private/var/folders/dn/y_zjh7v90wq_vn331cnrc1rh0000gn/T/pytest-of-tmwsiy/pytest-34/test_s3_permissions0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10d9be9d0>
+
+    def test_s3_permissions(self, tmp_path, monkeypatch):
+        """Run with restricted S3 credentials; verify graceful failure and clear errors."""
+        # Set invalid S3 credentials
+        os.environ["S3_ENDPOINT"] = "http://127.0.0.1:9000"
+        os.environ["S3_ACCESS_KEY"] = "invalid"
+        os.environ["S3_SECRET_KEY"] = "invalid"
+        os.environ["S3_BUCKET"] = "logflow-security-test"
+        os.environ["S3_REGION"] = "us-east-1"
+        server_addr = ('127.0.0.1', 10901)
+        stop_event = threading.Event()
+        error_triggered = threading.Event()
+        def callback(msg):
+            pass
+        def server():
+            import asyncio
+            from logflow.sink import S3Sink
+            async def run():
+                try:
+                    await run_logflow_server(
+                        ip=server_addr[0], port=server_addr[1],
+                        sinks=[S3Sink()],
+                        received_callback=callback,
+                        batch_size_bytes=1, batch_interval=0.1, stop_event=stop_event
+                    )
+                except Exception:
+                    error_triggered.set()
+            asyncio.run(run())
+        thread = threading.Thread(target=server, daemon=True)
+        thread.start()
+        time.sleep(0.5)
+        # Act: Send UDP packet
+        sock = threading.Thread(target=lambda: [
+            __import__('socket').socket(__import__('socket').AF_INET, __import__('socket').SOCK_DGRAM).sendto(b'{"msg": "s3-permission-test"}', server_addr)
+        ])
+        sock.start()
+        sock.join()
+        time.sleep(1)
+        stop_event.set()
+        thread.join(timeout=2)
+        # Assert: Should trigger error
+>       assert error_triggered.is_set(), "S3 permission error not triggered or not handled gracefully."
+E       AssertionError: S3 permission error not triggered or not handled gracefully.
+E       assert False
+E        +  where False = is_set()
+E        +    where is_set = <threading.Event at 0x1162f3250: unset>.is_set
+
+tests/integration/test_security_permissions.py:52: AssertionError
+__________________________ test_upload_batch_calls_s3 __________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x116a6a290>
+
+    @pytest.mark.unit
+    def test_upload_batch_calls_s3(monkeypatch):
+        # Arrange: Patch boto3 and environment
+        fake_client = MagicMock()
+        monkeypatch.setenv("S3_ENDPOINT", "http://fake-endpoint:9000")
+        monkeypatch.setenv("S3_ACCESS_KEY", "fake-access")
+        monkeypatch.setenv("S3_SECRET_KEY", "fake-secret")
+        monkeypatch.setenv("S3_BUCKET", "test-bucket")
+        monkeypatch.setenv("S3_REGION", "us-east-1")
+        with patch("logflow.listener.boto3") as mock_boto3:
+            mock_boto3.client.return_value = fake_client
+            batch = ["{\"msg\": \"unit-test\"}"]
+>           loop = asyncio.get_event_loop()
+
+tests/unit/test_s3_sink.py:19: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <asyncio.unix_events._UnixDefaultEventLoopPolicy object at 0x10c983410>
+
+    def get_event_loop(self):
+        """Get the event loop for the current context.
+    
+        Returns an instance of EventLoop or raises an exception.
+        """
+        if (self._local._loop is None and
+                not self._local._set_called and
+                threading.current_thread() is threading.main_thread()):
+            self.set_event_loop(self.new_event_loop())
+    
+        if self._local._loop is None:
+>           raise RuntimeError('There is no current event loop in thread %r.'
+                               % threading.current_thread().name)
+E           RuntimeError: There is no current event loop in thread 'MainThread'.
+
+../../.pyenv/versions/3.11.12/lib/python3.11/asyncio/events.py:681: RuntimeError
+_______________________ test_upload_batch_handles_error ________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x117066110>
+
+    @pytest.mark.unit
+    def test_upload_batch_handles_error(monkeypatch):
+        # Arrange: Patch boto3 to raise error
+        class FakeError(Exception): pass
+        fake_client = MagicMock()
+        fake_client.put_object.side_effect = FakeError("fail")
+        monkeypatch.setenv("S3_ENDPOINT", "http://fake-endpoint:9000")
+        monkeypatch.setenv("S3_ACCESS_KEY", "fake-access")
+        monkeypatch.setenv("S3_SECRET_KEY", "fake-secret")
+        monkeypatch.setenv("S3_BUCKET", "test-bucket")
+        monkeypatch.setenv("S3_REGION", "us-east-1")
+        with patch("logflow.listener.boto3") as mock_boto3:
+            mock_boto3.client.return_value = fake_client
+            batch = ["{\"msg\": \"fail-test\"}"]
+>           loop = asyncio.get_event_loop()
+
+tests/unit/test_s3_sink.py:42: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <asyncio.unix_events._UnixDefaultEventLoopPolicy object at 0x10c983410>
+
+    def get_event_loop(self):
+        """Get the event loop for the current context.
+    
+        Returns an instance of EventLoop or raises an exception.
+        """
+        if (self._local._loop is None and
+                not self._local._set_called and
+                threading.current_thread() is threading.main_thread()):
+            self.set_event_loop(self.new_event_loop())
+    
+        if self._local._loop is None:
+>           raise RuntimeError('There is no current event loop in thread %r.'
+                               % threading.current_thread().name)
+E           RuntimeError: There is no current event loop in thread 'MainThread'.
+
+../../.pyenv/versions/3.11.12/lib/python3.11/asyncio/events.py:681: RuntimeError
+=========================== short test summary info ============================
+FAILED tests/integration/test_disk_sink.py::test_udp_to_disk - AssertionError...
+FAILED tests/integration/test_failure_modes.py::TestFailureModes::test_s3_unavailable
+FAILED tests/integration/test_health_check.py::TestHealthCheck::test_health_endpoint_healthy
+FAILED tests/integration/test_health_check.py::TestHealthCheck::test_health_endpoint_unhealthy
+FAILED tests/integration/test_ipc_tail.py::test_ipc_tail - AssertionError: as...
+FAILED tests/integration/test_retention_lifecycle.py::TestRetentionLifecycle::test_s3_lifecycle_policy
+FAILED tests/integration/test_retention_lifecycle.py::TestRetentionLifecycle::test_disk_cleanup
+FAILED tests/integration/test_retrieval_search_tail.py::TestRetrievalSearchTail::test_s3_log_retrieval
+FAILED tests/integration/test_retrieval_search_tail.py::TestRetrievalSearchTail::test_search_and_tail
+FAILED tests/integration/test_s3_sink.py::test_udp_to_s3 - socket.gaierror: [...
+FAILED tests/integration/test_security_permissions.py::TestSecurityPermissions::test_s3_permissions
+FAILED tests/unit/test_s3_sink.py::test_upload_batch_calls_s3 - RuntimeError:...
+FAILED tests/unit/test_s3_sink.py::test_upload_batch_handles_error - RuntimeE...
+============= 13 failed, 19 passed, 9 warnings in 81.89s (0:01:21) =============

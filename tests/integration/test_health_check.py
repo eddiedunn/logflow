@@ -5,6 +5,16 @@ import time
 from logflow.listener import run_logflow_server
 from logflow.sink import DiskSink
 
+def wait_for_health(url, timeout=5):
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            resp = requests.get(url)
+            return resp
+        except Exception:
+            time.sleep(0.2)
+    raise RuntimeError(f"Health endpoint {url} did not become available in {timeout} seconds")
+
 @pytest.mark.integration
 class TestHealthCheck:
     def test_health_endpoint_healthy(self, tmp_path):
@@ -28,7 +38,7 @@ class TestHealthCheck:
         thread.start()
         time.sleep(1)
         # Act
-        resp = requests.get("http://127.0.0.1:10202/health")
+        resp = wait_for_health("http://127.0.0.1:10202/health", timeout=10)
         stop_event.set()
         thread.join(timeout=2)
         # Assert
@@ -61,7 +71,7 @@ class TestHealthCheck:
         thread.start()
         time.sleep(1)
         # Act
-        resp = requests.get("http://127.0.0.1:10204/health")
+        resp = wait_for_health("http://127.0.0.1:10204/health", timeout=10)
         stop_event.set()
         thread.join(timeout=2)
         # Assert

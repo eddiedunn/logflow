@@ -16,7 +16,11 @@ def test_upload_batch_calls_s3(monkeypatch):
     with patch("logflow.listener.boto3") as mock_boto3:
         mock_boto3.client.return_value = fake_client
         batch = ["{\"msg\": \"unit-test\"}"]
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         loop.run_until_complete(upload_batch(batch))
         # Assert: S3 client was called with correct params
         assert fake_client.put_object.called
@@ -39,7 +43,11 @@ def test_upload_batch_handles_error(monkeypatch):
     with patch("logflow.listener.boto3") as mock_boto3:
         mock_boto3.client.return_value = fake_client
         batch = ["{\"msg\": \"fail-test\"}"]
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(upload_batch(batch))
         except Exception:

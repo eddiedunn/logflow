@@ -4,6 +4,7 @@ setup.py
 logflow/__init__.py
 logflow/cli.py
 logflow/handler.py
+logflow/ipc.py
 logflow/listener.py
 logflow/sink.py
 logflow.egg-info/PKG-INFO

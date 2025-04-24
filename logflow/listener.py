@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import List
 from .sink import BaseSink, DiskSink, StdoutSink
 import socket
+from .ipc import IPCServer, IPCClient, LOGFLOW_IPC_SOCKET
+import sys
 
 try:
     import boto3
@@ -18,7 +20,7 @@ except ImportError:
 UDP_IP = os.getenv("UDP_LOG_LISTEN_IP", "0.0.0.0")
 UDP_PORT = int(os.getenv("UDP_LOG_LISTEN_PORT", 9999))
 BATCH_SIZE_BYTES = int(os.getenv("UDP_BATCH_SIZE_BYTES", 1024 * 1024))  # 1MB
-BATCH_INTERVAL = int(os.getenv("UDP_BATCH_INTERVAL", 60))  # 60 seconds
+BATCH_INTERVAL = float(os.getenv("UDP_BATCH_INTERVAL", 60))  # 60 seconds, now supports sub-second intervals
 HEALTH_CHECK_PORT = int(os.getenv("LOGFLOW_HEALTH_PORT", 8080))  # Now configurable
 
 def get_s3_config():
@@ -84,7 +86,11 @@ async def batch_and_upload(batch_queue: asyncio.Queue, sinks, batch_size_bytes, 
                 print(f"[batch_and_upload] Writing to sink: {sink}")
                 if batch:
                     print(f"[batch_and_upload] About to call sink.write_batch with: {batch}")
-                    sink.write_batch(batch)
+                    try:
+                        sink.write_batch(batch)
+                    except Exception as e:
+                        print(f"[batch_and_upload] Exception in sink.write_batch: {e}")
+                        # Do not raise; let health check reflect failure
             if enable_s3:
                 try:
                     await upload_batch(batch)
@@ -120,17 +126,42 @@ async def upload_batch(batch: List[str]):
         print(f"[listener] S3 upload failed: {e}")
         raise
 
-async def health_check_server(port=None):
+async def health_check_server(port=None, sinks=None):
     from aiohttp import web
+    import json
+    import inspect
     async def handle(request):
-        return web.Response(text="OK")
+        status = "healthy"
+        http_status = 200
+        # Always dynamically check all sinks' health
+        if sinks:
+            for sink in sinks:
+                is_healthy_fn = getattr(sink, "is_healthy", None)
+                if callable(is_healthy_fn):
+                    # If is_healthy is async, await it
+                    if inspect.iscoroutinefunction(is_healthy_fn):
+                        try:
+                            healthy = await is_healthy_fn()
+                        except Exception:
+                            healthy = False
+                    else:
+                        try:
+                            healthy = is_healthy_fn()
+                        except Exception:
+                            healthy = False
+                    if not healthy:
+                        status = "unhealthy"
+                        http_status = 503
+                        break
+        return web.json_response({"status": status}, status=http_status)
     app = web.Application()
-    app.router.add_get("/healthz", handle)
+    app.router.add_get("/health", handle)
+    app.router.add_get("/healthz", handle)  # legacy
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port or HEALTH_CHECK_PORT)
     await site.start()
-    print(f"[listener] Health check endpoint running on :{port or HEALTH_CHECK_PORT}/healthz")
+    print(f"[listener] Health check endpoint running on :{port or HEALTH_CHECK_PORT}/health and /healthz")
 
 async def udp_server_with_callback(batch_queue, ip, port, received_callback, stop_event=None, ready_event=None):
     bind_ip = ip if ip else UDP_IP  # Use default UDP_IP if not provided
@@ -173,8 +204,10 @@ async def run_logflow_server(ip=None, port=None, sinks=None, received_callback=N
     batch_task = asyncio.create_task(
         batch_and_upload(batch_queue, sinks, batch_size_bytes, batch_interval, stop_event)
     )
-    health_task = asyncio.create_task(health_check_server(health_port))
-    await asyncio.gather(udp_task, batch_task, health_task)
+    tasks = [udp_task, batch_task]
+    if health_port is not None:
+        tasks.append(asyncio.create_task(health_check_server(health_port, sinks)))
+    await asyncio.gather(*tasks)
 
 async def main():
     sinks = []
@@ -193,6 +226,19 @@ async def main():
             print("[listener] S3Sink not available (boto3 missing or not implemented)")
     await run_logflow_server(sinks=sinks)
 
+# Patch StdoutSink to also broadcast to IPCServer if present
+class MultiplexedStdoutSink(StdoutSink):
+    def __init__(self, ipc_server=None):
+        self.ipc_server = ipc_server
+        super().__init__()
+    def write_batch(self, batch: List[str]):
+        print("[StdoutSink] Log batch:")
+        for line in batch:
+            print(line)
+            sys.stdout.flush()
+            if self.ipc_server:
+                self.ipc_server.broadcast(line)
+
 def main_entrypoint():
     try:
         import aiohttp  # Ensure aiohttp is available for health check
@@ -200,7 +246,51 @@ def main_entrypoint():
         print("[listener] Please install aiohttp for health check endpoint: pip install aiohttp")
         exit(1)
     import asyncio
-    asyncio.run(main())
+    # Try to bind UDP socket first
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((UDP_IP, UDP_PORT))
+        sock.close()
+        is_primary = True
+    except OSError as e:
+        if e.errno == 98 or e.errno == 48:  # Address already in use (Linux/macOS)
+            is_primary = False
+        else:
+            raise
+    if is_primary:
+        # Primary: start IPC server and normal listener
+        ipc_server = IPCServer(max_clients=5)
+        ipc_server.start()
+        async def main_with_ipc():
+            sinks = []
+            disk_dir = os.getenv("DISK_SINK_DIR")
+            enable_s3 = os.getenv("ENABLE_S3_SINK", "").lower() in ("1", "true", "yes")
+            if disk_dir:
+                sinks.append(DiskSink(disk_dir))
+            else:
+                sinks.append(MultiplexedStdoutSink(ipc_server=ipc_server))
+            if enable_s3:
+                try:
+                    from .sink import S3Sink
+                    sinks.append(S3Sink())
+                except ImportError:
+                    print("[listener] S3Sink not available (boto3 missing or not implemented)")
+            try:
+                await run_logflow_server(sinks=sinks)
+            finally:
+                ipc_server.stop()
+        asyncio.run(main_with_ipc())
+    else:
+        # Tail mode: connect to IPC server and print logs
+        print(f"[logflow] UDP port in use, connecting as tail to {LOGFLOW_IPC_SOCKET}")
+        client = IPCClient()
+        try:
+            client.connect()
+            print(f"[logflow] Connected as tail client. Printing shared logs:")
+            client.tail()
+        except Exception as e:
+            print(f"[logflow] Could not connect to primary listener: {e}")
+            exit(1)
 
 def start_udp_server(batch_queue=None, ip=None, port=None, received_callback=None, stop_event=None):
     """Convenience wrapper to start the UDP server for testing/integration, supports stop_event for clean shutdown."""
